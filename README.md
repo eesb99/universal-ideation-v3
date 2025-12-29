@@ -48,13 +48,43 @@ docker run -p 6333:6333 qdrant/qdrant
 /universal-ideation-v3 "sustainable packaging innovation"
 ```
 
-### Via CLI
+### Via CLI (Stub Mode)
 ```bash
 cd ~/.claude/skills/universal-ideation-v3
 python3 scripts/run_v3.py "your domain" --verbose
 ```
 
+### Via LLM Runner (Full Mode with Claude API)
+
+Requires Anthropic API key in `~/.env`:
+```bash
+CLAUDE_API_KEY=sk-ant-xxxxx
+```
+
+Run with full LLM integration + storage:
+```bash
+cd ~/.claude/skills/universal-ideation-v3
+python3 scripts/llm_runner.py "your domain" -i 30 -m 30 -v
+```
+
+This mode:
+- Uses Claude API for idea generation and scoring
+- Stores ideas in SQLite database
+- Stores embeddings in Qdrant for semantic search
+- Exports full v3.2 statistics (DARLING learnings, atomic novelty, etc.)
+
 ## Options
+
+### llm_runner.py (Full Mode)
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-i, --iterations` | 15 | Max iterations |
+| `-m, --minutes` | 15 | Max duration |
+| `-t, --threshold` | 60.0 | Acceptance score |
+| `-v, --verbose` | false | Show progress |
+
+### run_v3.py (Stub Mode)
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -64,11 +94,29 @@ python3 scripts/run_v3.py "your domain" --verbose
 | `-v, --verbose` | false | Show progress |
 | `--test` | false | Stub mode for testing |
 
+## Storage
+
+### SQLite Database
+- Location: `data/ideation.db`
+- Tables: ideas, sessions, learnings
+- Persists all accepted ideas with scores
+
+### Qdrant Vector Database (Optional)
+- Location: `localhost:6333`
+- Collection: `universal_ideas` (384-dim embeddings)
+- Enables semantic similarity search
+
+Start Qdrant:
+```bash
+docker run -d -p 6333:6333 qdrant/qdrant
+```
+
 ## Output
 
 Results saved to:
-- `output/ideation_YYYYMMDD_HHMMSS.json`
-- `data/ideation.db` (SQLite)
+- `output/ideation_YYYYMMDD_HHMMSS.json` - Full session export
+- `data/ideation.db` - SQLite persistence
+- Qdrant vectors - Semantic embeddings (if enabled)
 
 ## Testing
 
@@ -84,14 +132,15 @@ universal-ideation-v3/
 ├── README.md             # This file
 ├── requirements.txt      # Dependencies
 ├── scripts/
-│   ├── run_v3.py        # Main orchestrator
+│   ├── run_v3.py        # Main orchestrator (stub mode)
+│   ├── llm_runner.py    # LLM-integrated runner (full mode)
 │   ├── generators/      # Triple Generator
 │   ├── gates/           # Quality gates
 │   ├── evaluators/      # Cognitive diversity
 │   ├── learning/        # DARLING + reflection
 │   ├── escape/          # Plateau escape
 │   ├── novelty/         # Atomic novelty
-│   └── storage/         # Persistence
+│   └── storage/         # Persistence (SQLite + Qdrant)
 ├── tests/               # 74 unit tests
 ├── data/                # Runtime SQLite
 └── output/              # Generated results
