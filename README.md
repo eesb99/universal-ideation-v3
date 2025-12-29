@@ -38,7 +38,10 @@ docker run -p 6333:6333 qdrant/qdrant
 
 ### Via Skill Command
 ```bash
-/universal-ideation-v3 "dairy-free protein Malaysia"
+/universal-ideation-v3 "e-commerce innovation"
+/universal-ideation-v3 "sustainable opportunity in Malaysia"
+/universal-ideation-v3 "ai start up innovation"
+/universal-ideation-v3 "sustainable packaging innovation"
 ```
 
 ### Via CLI
