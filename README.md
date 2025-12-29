@@ -120,16 +120,19 @@ Results saved to:
 
 ## Backup
 
-Backup your ideas database:
+Backup your ideas database (SQLite + Qdrant vectors):
 
 ```bash
 cd ~/.claude/skills/universal-ideation-v3
 
-# Create backup
+# Full backup (SQLite + Qdrant + JSON)
 python3 scripts/backup.py backup
 
-# Create named backup
+# Named backup
 python3 scripts/backup.py backup -n "my_backup"
+
+# SQLite only (skip Qdrant)
+python3 scripts/backup.py backup --no-qdrant
 
 # View statistics
 python3 scripts/backup.py stats
@@ -140,11 +143,22 @@ python3 scripts/backup.py list
 # Export all ideas to JSON
 python3 scripts/backup.py export -o my_ideas.json
 
-# Restore from backup
+# Restore full backup (SQLite + Qdrant)
 python3 scripts/backup.py restore backup_file.db
+
+# Restore SQLite only
+python3 scripts/backup.py restore backup_file.db --no-qdrant
 ```
 
-Backups saved to `backups/` folder (both .db and .json formats).
+### Backup Files
+
+| File | Contents |
+|------|----------|
+| `*_backup.db` | SQLite database (ideas, sessions, learnings) |
+| `*_qdrant.snapshot` | Qdrant vector embeddings |
+| `*_backup.json` | Full JSON export |
+
+Backups saved to `backups/` folder.
 
 ## Testing
 
