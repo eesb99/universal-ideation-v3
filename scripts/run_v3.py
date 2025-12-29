@@ -40,6 +40,8 @@ from enum import Enum
 from datetime import datetime
 import time
 import json
+import numpy as np
+import hashlib
 
 # Import all v3 components
 from generators.triple_generator import (
@@ -755,6 +757,92 @@ class IdeationOrchestrator:
         analysis = self.escape_protocol.check_plateau()
         return self.escape_protocol.should_attempt_escape()
 
+    def _create_simple_embedding(self, idea: Dict, dimension: int = 128) -> np.ndarray:
+        """
+        Create a simple text-based embedding for an idea.
+
+        Uses a hash-based approach to convert idea text into a deterministic
+        embedding vector. This provides consistent embeddings for distance
+        calculations without requiring an external embedding model.
+
+        Args:
+            idea: The idea dictionary containing title and description
+            dimension: Embedding dimension (default 128)
+
+        Returns:
+            Normalized numpy array of shape (dimension,)
+        """
+        # Extract text content from idea
+        text_parts = []
+        if isinstance(idea, dict):
+            text_parts.append(idea.get("title", ""))
+            text_parts.append(idea.get("description", ""))
+            text_parts.append(idea.get("mechanism", ""))
+        else:
+            text_parts.append(str(idea))
+
+        text = " ".join(filter(None, text_parts)).lower()
+
+        # Create embedding using hash-based approach
+        embedding = np.zeros(dimension)
+
+        # Tokenize and hash each word
+        words = text.split()
+        for word in words:
+            # Hash the word to get a deterministic index
+            word_hash = int(hashlib.md5(word.encode()).hexdigest(), 16)
+            # Use multiple hash functions for better distribution
+            for i in range(3):
+                idx = (word_hash + i * 7919) % dimension  # 7919 is a prime
+                sign = 1 if ((word_hash >> i) & 1) else -1
+                embedding[idx] += sign
+
+        # Normalize the embedding
+        norm = np.linalg.norm(embedding)
+        if norm > 0:
+            embedding = embedding / norm
+
+        return embedding
+
+    def _calculate_deviation_from_centroid(self, idea: Dict) -> float:
+        """
+        Calculate how far an idea deviates from the current idea centroid.
+
+        Uses the SemanticDistanceGate's centroid if available, otherwise
+        returns a high deviation value indicating novelty.
+
+        Args:
+            idea: The idea dictionary to measure
+
+        Returns:
+            Deviation score from 0.0 (identical to centroid) to 1.0 (maximally different)
+        """
+        # If no ideas have been accepted yet, return high deviation
+        if self.gate.centroid is None or len(self.gate.embeddings) == 0:
+            return 1.0
+
+        # Create embedding for the new idea
+        idea_embedding = self._create_simple_embedding(idea)
+
+        # Resize if needed to match gate centroid dimension
+        if len(idea_embedding) != len(self.gate.centroid):
+            # Pad or truncate to match centroid dimension
+            target_dim = len(self.gate.centroid)
+            if len(idea_embedding) < target_dim:
+                idea_embedding = np.pad(idea_embedding, (0, target_dim - len(idea_embedding)))
+            else:
+                idea_embedding = idea_embedding[:target_dim]
+            # Re-normalize
+            norm = np.linalg.norm(idea_embedding)
+            if norm > 0:
+                idea_embedding = idea_embedding / norm
+
+        # Calculate cosine distance from centroid
+        deviation = self.gate.cosine_distance(idea_embedding, self.gate.centroid)
+
+        # Clamp to [0, 1] range
+        return max(0.0, min(1.0, deviation))
+
     def _attempt_escape(
         self,
         idea_generator: Optional[Callable],
@@ -789,11 +877,14 @@ class IdeationOrchestrator:
 
             final_score = self._calculate_final_score(scores, None)
 
+            # Calculate actual deviation from centroid
+            deviation = self._calculate_deviation_from_centroid(idea)
+
             escape_ideas.append(EscapeIdea(
                 idea=idea,
                 score=final_score,
                 strategy=prompt_config["strategy"],
-                deviation_from_centroid=0.8  # Would calculate in full impl
+                deviation_from_centroid=deviation
             ))
 
         # Evaluate escape attempt
