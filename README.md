@@ -12,6 +12,10 @@ Science-grounded autonomous ideation system with self-improving mechanisms.
 - **Reflection Learning** - Self-improving pattern extraction
 - **Plateau Escape** - Avoid local optima
 
+## Architecture
+
+![Universal Ideation v3.2 Architecture](docs/architecture.png)
+
 ## Installation
 
 ### As Claude Code Skill
