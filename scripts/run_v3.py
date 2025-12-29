@@ -236,18 +236,18 @@ class IdeationOrchestrator:
         self.domain = domain
         self.config = config or OrchestratorConfig()
 
-        # Initialize components
-        self._init_components()
-
         # Session state
         self.phase = SessionPhase.INITIALIZING
         self.iteration = 0
         self.start_time: Optional[float] = None
 
-        # Results tracking
+        # Results tracking (must be before _init_components)
         self.accepted_ideas: List[IdeaResult] = []
         self.rejected_ideas: List[IdeaResult] = []
         self.learnings: List[str] = []
+
+        # Initialize components (after learnings initialized)
+        self._init_components()
         self.mode_counts: Dict[str, int] = {
             "explorer": 0, "refiner": 0, "contrarian": 0
         }
@@ -482,11 +482,11 @@ class IdeationOrchestrator:
                     self.pending_reflection_ideas.append(IdeaForReflection(
                         id=f"idea_{self.iteration}",
                         title=result.idea.get("title", "Untitled"),
-                        description=result.idea.get("description", ""),
                         dimension_scores=result.dimension_scores,
                         final_score=result.final_score,
                         generator_mode=result.generator_mode.value,
-                        accepted=True
+                        accepted=True,
+                        domain=self.domain
                     ))
             else:
                 self.rejected_ideas.append(result)
