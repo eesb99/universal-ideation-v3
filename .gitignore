@@ -12,6 +12,7 @@ build/
 # Runtime data
 data/*.db
 data/*.sqlite
+scripts/storage/*.db
 output/*.json
 
 # IDE
