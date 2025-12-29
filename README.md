@@ -118,6 +118,34 @@ Results saved to:
 - `data/ideation.db` - SQLite persistence
 - Qdrant vectors - Semantic embeddings (if enabled)
 
+## Backup
+
+Backup your ideas database:
+
+```bash
+cd ~/.claude/skills/universal-ideation-v3
+
+# Create backup
+python3 scripts/backup.py backup
+
+# Create named backup
+python3 scripts/backup.py backup -n "my_backup"
+
+# View statistics
+python3 scripts/backup.py stats
+
+# List all backups
+python3 scripts/backup.py list
+
+# Export all ideas to JSON
+python3 scripts/backup.py export -o my_ideas.json
+
+# Restore from backup
+python3 scripts/backup.py restore backup_file.db
+```
+
+Backups saved to `backups/` folder (both .db and .json formats).
+
 ## Testing
 
 ```bash
@@ -134,6 +162,7 @@ universal-ideation-v3/
 ├── scripts/
 │   ├── run_v3.py        # Main orchestrator (stub mode)
 │   ├── llm_runner.py    # LLM-integrated runner (full mode)
+│   ├── backup.py        # Database backup tool
 │   ├── generators/      # Triple Generator
 │   ├── gates/           # Quality gates
 │   ├── evaluators/      # Cognitive diversity
@@ -143,6 +172,7 @@ universal-ideation-v3/
 │   └── storage/         # Persistence (SQLite + Qdrant)
 ├── tests/               # 74 unit tests
 ├── data/                # Runtime SQLite
+├── backups/             # Database backups
 └── output/              # Generated results
 ```
 
