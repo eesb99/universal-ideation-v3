@@ -1,0 +1,8 @@
+# Universal Ideation v3.2 - Dependencies
+
+# Required
+numpy>=1.20.0
+
+# Optional - for vector search (uncomment if needed)
+# qdrant-client>=1.7.0
+# sentence-transformers>=2.2.0
