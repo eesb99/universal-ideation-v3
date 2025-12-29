@@ -388,14 +388,28 @@ def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
         "config": {
             "iterations": iterations,
             "minutes": minutes,
-            "threshold": threshold
+            "threshold": threshold,
+            "enable_verification": config.enable_verification,
+            "enable_reflection": config.enable_reflection,
+            "enable_atomic_novelty": config.enable_atomic_novelty,
+            "atomic_novelty_weight": config.atomic_novelty_weight,
+            "min_novelty_score": config.min_novelty_score
         },
         "results": {
             "total_iterations": results.total_iterations,
             "accepted_count": len(results.accepted_ideas),
             "rejected_count": len(results.rejected_ideas),
             "average_score": results.average_score,
-            "best_score": results.best_score
+            "best_score": results.best_score,
+            "duration_seconds": results.duration_seconds
+        },
+        "v3_2_features": {
+            "escape_attempts": results.escape_attempts,
+            "escape_successful": results.escape_successful,
+            "plateau_info": results.plateau_info,
+            "generator_mode_distribution": results.generator_mode_distribution,
+            "dimension_averages": results.dimension_averages,
+            "learnings": results.learnings
         },
         "ideas": [
             {
@@ -403,7 +417,12 @@ def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
                 "description": r.idea.get("description"),
                 "score": r.final_score,
                 "mode": r.generator_mode.value,
-                "dimensions": r.dimension_scores
+                "dimensions": r.dimension_scores,
+                "atomic_novelty": {
+                    "final_score": r.atomic_novelty_result.final_score,
+                    "tier": r.atomic_novelty_result.novelty_tier.value if hasattr(r.atomic_novelty_result.novelty_tier, 'value') else str(r.atomic_novelty_result.novelty_tier),
+                    "confidence": r.atomic_novelty_result.confidence
+                } if r.atomic_novelty_result else None
             }
             for r in results.accepted_ideas
         ]
