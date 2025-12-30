@@ -65,7 +65,7 @@ class PerplexitySearch:
     """
 
     API_URL = "https://api.perplexity.ai/chat/completions"
-    DEFAULT_MODEL = "llama-3.1-sonar-large-128k-online"  # Online model with web search
+    DEFAULT_MODEL = "sonar"  # Online model with web search
 
     def __init__(
         self,
@@ -77,7 +77,7 @@ class PerplexitySearch:
 
         Args:
             api_key: Perplexity API key (or set PERPLEXITY_API_KEY env var)
-            model: Model to use (default: llama-3.1-sonar-large-128k-online)
+            model: Model to use (default: sonar)
         """
         self.api_key = api_key or os.environ.get("PERPLEXITY_API_KEY")
         self.model = model or self.DEFAULT_MODEL
