@@ -37,3 +37,7 @@ ENV/
 
 # Session context (local notes)
 context/
+
+# Node
+node_modules/
+package-lock.json

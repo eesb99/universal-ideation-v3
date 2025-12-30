@@ -1,0 +1,29 @@
+{
+  "name": "universal-ideation-v3",
+  "version": "1.0.0",
+  "description": "Science-grounded autonomous ideation system with self-improving mechanisms.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eesb99/universal-ideation-v3.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/eesb99/universal-ideation-v3/issues"
+  },
+  "homepage": "https://github.com/eesb99/universal-ideation-v3#readme",
+  "devDependencies": {
+    "conventional-changelog-cli": "^5.0.0"
+  }
+}
