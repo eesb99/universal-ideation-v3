@@ -11,6 +11,7 @@ Science-grounded autonomous ideation system with self-improving mechanisms.
 - **Verification Gates** - Quality checkpoints
 - **Reflection Learning** - Self-improving pattern extraction
 - **Plateau Escape** - Avoid local optima
+- **Web Search Integration** - Real-time market intelligence via Perplexity API
 
 ## Architecture
 
@@ -61,6 +62,11 @@ Requires Anthropic API key in `~/.env`:
 CLAUDE_API_KEY=sk-ant-xxxxx
 ```
 
+Optional: Add Perplexity API key for web search:
+```bash
+PERPLEXITY_API_KEY=pplx-xxxxx
+```
+
 Run with full LLM integration + storage:
 ```bash
 cd ~/.claude/skills/universal-ideation-v3
@@ -73,6 +79,21 @@ This mode:
 - Stores embeddings in Qdrant for semantic search
 - Exports full v3.2 statistics (DARLING learnings, atomic novelty, etc.)
 
+### With Web Search (Market Intelligence)
+
+Enable real-time market context from Perplexity:
+```bash
+python3 scripts/llm_runner.py "protein beverages" -i 10 -m 5 -w -v
+```
+
+This fetches:
+- **Domain trends** - Current market developments
+- **Market gaps** - Underserved opportunities
+- **Emerging tech** - Relevant technologies
+- **Consumer insights** - Behavior patterns
+
+The market context is injected into idea generation prompts for more grounded, trend-aware ideas.
+
 ## Options
 
 ### llm_runner.py (Full Mode)
@@ -83,6 +104,7 @@ This mode:
 | `-m, --minutes` | 15 | Max duration |
 | `-t, --threshold` | 60.0 | Acceptance score |
 | `-v, --verbose` | false | Show progress |
+| `-w, --web-search` | false | Enable Perplexity web search for market context |
 
 ### run_v3.py (Stub Mode)
 
@@ -183,6 +205,7 @@ universal-ideation-v3/
 │   ├── learning/        # DARLING + reflection
 │   ├── escape/          # Plateau escape
 │   ├── novelty/         # Atomic novelty
+│   ├── search/          # Web search (Perplexity)
 │   └── storage/         # Persistence (SQLite + Qdrant)
 ├── tests/               # 74 unit tests
 ├── data/                # Runtime SQLite
