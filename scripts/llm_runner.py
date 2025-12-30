@@ -31,11 +31,16 @@ from run_v3 import (
 )
 from generators.triple_generator import GeneratorMode, ConstraintTemplate
 from storage.memory_helper import MemoryHelper
+from search.perplexity_search import PerplexitySearch, create_perplexity_search
 
 # Initialize Anthropic client
 client = anthropic.Anthropic(
     api_key=os.environ.get("CLAUDE_API_KEY")
 )
+
+# Initialize Perplexity search (optional - for web knowledge)
+perplexity_client: PerplexitySearch = None
+market_context: str = ""
 
 MODEL = "claude-sonnet-4-20250514"
 
@@ -120,6 +125,10 @@ Return JSON only:
 
     prompt = mode_prompts.get(mode, mode_prompts[GeneratorMode.EXPLORER])
     prompt += learning_context
+
+    # Add market context from Perplexity search if available
+    if market_context:
+        prompt += f"\n\n{market_context}"
 
     try:
         response = client.messages.create(
@@ -244,10 +253,21 @@ Return JSON only:
 
 
 def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
-                      threshold: float = 60.0, verbose: bool = True):
-    """Run full v3.2 ideation with LLM integration and full storage."""
+                      threshold: float = 60.0, verbose: bool = True,
+                      use_web_search: bool = False):
+    """
+    Run full v3.2 ideation with LLM integration and full storage.
 
-    global memory_helper
+    Args:
+        domain: Domain/focus area for ideation
+        iterations: Maximum iterations
+        minutes: Maximum runtime in minutes
+        threshold: Acceptance score threshold
+        verbose: Enable verbose output
+        use_web_search: Enable Perplexity web search for market context
+    """
+
+    global memory_helper, perplexity_client, market_context
 
     # Initialize storage
     print("=" * 60)
@@ -270,6 +290,32 @@ def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
         storage_status.append("Embeddings: NOT AVAILABLE")
 
     storage_status.append(f"SQLite: {memory_helper.db_path}")
+
+    # Initialize Perplexity search if enabled
+    if use_web_search:
+        perplexity_client = create_perplexity_search()
+        if perplexity_client and perplexity_client.api_key:
+            storage_status.append("Perplexity: Connected")
+            print("\nGathering market intelligence via web search...")
+            try:
+                context_results = perplexity_client.get_ideation_context(domain)
+                market_context = perplexity_client.format_for_prompt(context_results)
+                if market_context:
+                    print(f"  Retrieved {len(market_context)} chars of market context")
+                    # Show summary of what was found
+                    for key, result in context_results.items():
+                        status = "OK" if result.success else "FAILED"
+                        print(f"    - {key}: {status}")
+                else:
+                    print("  No market context retrieved")
+            except Exception as e:
+                print(f"  Web search error: {e}")
+                market_context = ""
+        else:
+            storage_status.append("Perplexity: NOT CONFIGURED (set PERPLEXITY_API_KEY)")
+            market_context = ""
+    else:
+        market_context = ""
 
     for status in storage_status:
         print(f"  {status}")
@@ -445,6 +491,8 @@ if __name__ == "__main__":
     parser.add_argument("-m", "--minutes", type=int, default=15, help="Max minutes")
     parser.add_argument("-t", "--threshold", type=float, default=60.0, help="Acceptance threshold")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+    parser.add_argument("-w", "--web-search", action="store_true",
+                        help="Enable Perplexity web search for market context (requires PERPLEXITY_API_KEY)")
 
     args = parser.parse_args()
 
@@ -453,5 +501,6 @@ if __name__ == "__main__":
         iterations=args.iterations,
         minutes=args.minutes,
         threshold=args.threshold,
-        verbose=args.verbose
+        verbose=args.verbose,
+        use_web_search=args.web_search
     )
