@@ -48,6 +48,89 @@ MODEL = "claude-sonnet-4-20250514"
 memory_helper = None
 
 
+def generate_ideas_batch(domain: str, mode: GeneratorMode, batch_size: int = 10, learnings: list = None) -> list:
+    """Generate multiple ideas in a single API call for efficiency."""
+
+    mode_descriptions = {
+        GeneratorMode.EXPLORER: "EXPLORER using SCAMPER framework for breakthrough novelty",
+        GeneratorMode.REFINER: "REFINER using Design Thinking for practical feasibility",
+        GeneratorMode.CONTRARIAN: "CONTRARIAN using TRIZ to challenge industry assumptions"
+    }
+
+    mode_desc = mode_descriptions.get(mode, mode_descriptions[GeneratorMode.EXPLORER])
+
+    # Add learnings context if available
+    learning_context = ""
+    if learnings and len(learnings) > 0:
+        learning_context = "\n\nPrevious learnings to incorporate:\n"
+        for learning in learnings[-5:]:
+            learning_context += f"- {learning}\n"
+
+    # Add market context if available
+    context_section = ""
+    if market_context:
+        context_section = f"\n\n{market_context}"
+
+    prompt = f"""You are a {mode_desc}.
+
+Domain: {domain}
+{learning_context}{context_section}
+
+Generate {batch_size} DIVERSE and UNIQUE product/service ideas. Each idea should be distinctly different from the others.
+
+Requirements:
+- Each idea must solve a different problem or target a different segment
+- Vary the innovation types (Breakthrough, Incremental, Disruptive)
+- Include a mix of B2B and B2C concepts
+- Range from low-tech to high-tech solutions
+
+Return a JSON array with exactly {batch_size} ideas:
+[
+    {{
+        "title": "Product/Service Name",
+        "description": "2-3 sentence core concept",
+        "target_market": "Specific customer segment",
+        "differentiators": ["Key difference 1", "Key difference 2"],
+        "price_point": "Estimated price",
+        "innovation_type": "Breakthrough/Incremental/Disruptive"
+    }},
+    ...
+]
+
+Return ONLY the JSON array, no other text."""
+
+    try:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,  # Increased for batch output
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        content = response.content[0].text
+
+        # Extract JSON if wrapped in markdown
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+
+        ideas = json.loads(content.strip())
+
+        # Ensure it's a list
+        if not isinstance(ideas, list):
+            ideas = [ideas]
+
+        # Add generator mode to each idea
+        for idea in ideas:
+            idea["generator_mode"] = mode.value
+
+        return ideas
+
+    except Exception as e:
+        print(f"Batch generation error: {e}")
+        return []
+
+
 def generate_idea_with_llm(domain: str, mode: GeneratorMode, learnings: list = None) -> dict:
     """Generate idea using Claude API based on generator mode."""
 
@@ -482,25 +565,284 @@ def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
     return results
 
 
+def run_batch_ideation(domain: str, target_ideas: int = 100, batch_size: int = 10,
+                       threshold: float = 60.0, verbose: bool = True,
+                       use_web_search: bool = False):
+    """
+    Run batch ideation - generates multiple ideas per API call for efficiency.
+
+    Args:
+        domain: Domain/focus area for ideation
+        target_ideas: Target number of ideas to generate (default 100)
+        batch_size: Ideas per API call (default 10)
+        threshold: Acceptance score threshold
+        verbose: Enable verbose output
+        use_web_search: Enable Perplexity web search for market context
+    """
+
+    global memory_helper, perplexity_client, market_context
+
+    print("=" * 60)
+    print("UNIVERSAL IDEATION v3.2 - BATCH MODE")
+    print("=" * 60)
+
+    # Initialize storage
+    print("Initializing storage...")
+    memory_helper = MemoryHelper()
+
+    storage_status = []
+    if memory_helper.qdrant:
+        storage_status.append("Qdrant: Connected")
+    else:
+        storage_status.append("Qdrant: NOT CONNECTED")
+
+    if memory_helper.embedder:
+        storage_status.append("Embeddings: Ready")
+    else:
+        storage_status.append("Embeddings: NOT AVAILABLE")
+
+    storage_status.append(f"SQLite: {memory_helper.db_path}")
+
+    # Initialize Perplexity search if enabled
+    if use_web_search:
+        perplexity_client = create_perplexity_search()
+        if perplexity_client and perplexity_client.api_key:
+            storage_status.append("Perplexity: Connected")
+            print("\nGathering market intelligence via web search...")
+            try:
+                context_results = perplexity_client.get_ideation_context(domain)
+                market_context = perplexity_client.format_for_prompt(context_results)
+                if market_context:
+                    print(f"  Retrieved {len(market_context)} chars of market context")
+                    for key, result in context_results.items():
+                        status = "OK" if result.success else "FAILED"
+                        print(f"    - {key}: {status}")
+            except Exception as e:
+                print(f"  Web search error: {e}")
+                market_context = ""
+        else:
+            storage_status.append("Perplexity: NOT CONFIGURED")
+            market_context = ""
+    else:
+        market_context = ""
+
+    for status in storage_status:
+        print(f"  {status}")
+
+    print()
+    print(f"Domain: {domain}")
+    print(f"Model: {MODEL}")
+    print(f"Target: {target_ideas} ideas | Batch size: {batch_size} | Threshold: {threshold}")
+    print("=" * 60)
+    print()
+
+    session_id = str(uuid.uuid4())[:8]
+    start_time = datetime.now()
+
+    # Tracking
+    all_ideas = []
+    accepted_ideas = []
+    rejected_ideas = []
+    ideas_stored = 0
+
+    # Calculate batches needed
+    num_batches = (target_ideas + batch_size - 1) // batch_size
+    modes = [GeneratorMode.EXPLORER, GeneratorMode.REFINER, GeneratorMode.CONTRARIAN]
+
+    print(f"Generating {num_batches} batches across {len(modes)} modes...")
+    print()
+
+    batch_num = 0
+    for round_num in range((num_batches + len(modes) - 1) // len(modes)):
+        for mode in modes:
+            if len(all_ideas) >= target_ideas:
+                break
+
+            batch_num += 1
+            print(f"[Batch {batch_num}/{num_batches}] Mode: {mode.value}...")
+
+            # Generate batch
+            ideas = generate_ideas_batch(
+                domain=domain,
+                mode=mode,
+                batch_size=batch_size,
+                learnings=[r["title"] for r in accepted_ideas[-10:]] if accepted_ideas else None
+            )
+
+            if not ideas:
+                print(f"  Warning: No ideas generated")
+                continue
+
+            print(f"  Generated {len(ideas)} ideas, scoring...")
+
+            # Score each idea
+            for i, idea in enumerate(ideas):
+                scores = score_idea_with_llm(idea, domain)
+
+                # Calculate weighted score
+                weights = {
+                    "novelty": 0.12, "feasibility": 0.18, "market": 0.18,
+                    "complexity": 0.12, "scenario": 0.12, "contrarian": 0.10,
+                    "surprise": 0.10, "cross_domain": 0.08
+                }
+                weighted_score = sum(scores.get(dim, 50) * w for dim, w in weights.items())
+
+                idea["scores"] = scores
+                idea["weighted_score"] = weighted_score
+                all_ideas.append(idea)
+
+                # Accept/reject based on threshold
+                if weighted_score >= threshold:
+                    accepted_ideas.append(idea)
+                    status = "[+]"
+
+                    # Store in database
+                    if memory_helper:
+                        try:
+                            memory_helper.store_idea(
+                                session_id=session_id,
+                                domain=domain,
+                                mode=idea.get("generator_mode", "unknown"),
+                                concept_name=idea.get("title", "Untitled"),
+                                description=idea.get("description", ""),
+                                target_audience=idea.get("target_market", ""),
+                                differentiation=json.dumps(idea.get("differentiators", [])),
+                                scores=scores,
+                                weighted_score=weighted_score
+                            )
+                            ideas_stored += 1
+                        except Exception as e:
+                            print(f"    Storage error: {e}")
+                else:
+                    rejected_ideas.append(idea)
+                    status = "[-]"
+
+                if verbose:
+                    title = idea.get("title", "Unknown")[:35]
+                    print(f"    {status} {title} | {weighted_score:.1f}")
+
+            print(f"  Batch complete: {len(accepted_ideas)} accepted, {len(rejected_ideas)} rejected")
+            print()
+
+        if len(all_ideas) >= target_ideas:
+            break
+
+    duration = (datetime.now() - start_time).total_seconds()
+
+    # Print summary
+    print("=" * 60)
+    print("BATCH SESSION COMPLETE")
+    print("=" * 60)
+    print(f"Total ideas generated: {len(all_ideas)}")
+    print(f"Accepted ideas:        {len(accepted_ideas)}")
+    print(f"Rejected ideas:        {len(rejected_ideas)}")
+    print(f"Acceptance rate:       {len(accepted_ideas)/len(all_ideas)*100:.1f}%" if all_ideas else "N/A")
+    print(f"Duration:              {duration:.1f}s ({duration/60:.1f} min)")
+    print(f"Ideas/minute:          {len(all_ideas)/(duration/60):.1f}" if duration > 0 else "N/A")
+    print()
+
+    if accepted_ideas:
+        avg_score = sum(i["weighted_score"] for i in accepted_ideas) / len(accepted_ideas)
+        best_score = max(i["weighted_score"] for i in accepted_ideas)
+        print(f"Average score:         {avg_score:.1f}")
+        print(f"Best score:            {best_score:.1f}")
+
+    print()
+    print("STORAGE:")
+    print(f"  Ideas stored in SQLite: {ideas_stored}")
+    print(f"  Database: {memory_helper.db_path}")
+    if memory_helper.qdrant:
+        try:
+            collection_info = memory_helper.qdrant.get_collection(memory_helper.collection_name)
+            print(f"  Qdrant vectors: {collection_info.points_count}")
+        except:
+            print("  Qdrant vectors: N/A")
+    print()
+
+    # Print top ideas
+    if accepted_ideas:
+        print("TOP 10 IDEAS:")
+        print("-" * 60)
+        sorted_ideas = sorted(accepted_ideas, key=lambda x: x["weighted_score"], reverse=True)
+        for i, idea in enumerate(sorted_ideas[:10], 1):
+            print(f"\n{i}. {idea.get('title', 'Unknown')} (Score: {idea['weighted_score']:.1f})")
+            print(f"   {idea.get('description', 'N/A')[:100]}...")
+
+    print()
+
+    # Export to JSON
+    output_dir = Path(_SCRIPT_DIR).parent / "output"
+    output_dir.mkdir(exist_ok=True)
+    output_file = output_dir / f"batch_ideation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+    export_data = {
+        "session_id": session_id,
+        "domain": domain,
+        "timestamp": datetime.now().isoformat(),
+        "mode": "batch",
+        "config": {
+            "target_ideas": target_ideas,
+            "batch_size": batch_size,
+            "threshold": threshold,
+            "use_web_search": use_web_search
+        },
+        "results": {
+            "total_generated": len(all_ideas),
+            "accepted_count": len(accepted_ideas),
+            "rejected_count": len(rejected_ideas),
+            "acceptance_rate": len(accepted_ideas)/len(all_ideas) if all_ideas else 0,
+            "duration_seconds": duration
+        },
+        "ideas": sorted(accepted_ideas, key=lambda x: x["weighted_score"], reverse=True)
+    }
+
+    with open(output_file, "w") as f:
+        json.dump(export_data, f, indent=2)
+
+    print(f"Results exported to: {output_file}")
+
+    return accepted_ideas
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Universal Ideation v3.2 - Full LLM + Storage Mode")
     parser.add_argument("domain", help="Domain/focus area for ideation")
-    parser.add_argument("-i", "--iterations", type=int, default=15, help="Max iterations")
-    parser.add_argument("-m", "--minutes", type=int, default=15, help="Max minutes")
+    parser.add_argument("-i", "--iterations", type=int, default=15, help="Max iterations (standard mode)")
+    parser.add_argument("-m", "--minutes", type=int, default=15, help="Max minutes (standard mode)")
     parser.add_argument("-t", "--threshold", type=float, default=60.0, help="Acceptance threshold")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("-w", "--web-search", action="store_true",
                         help="Enable Perplexity web search for market context (requires PERPLEXITY_API_KEY)")
 
+    # Batch mode options
+    parser.add_argument("-b", "--batch", action="store_true",
+                        help="Enable batch mode (generate multiple ideas per API call)")
+    parser.add_argument("-n", "--target", type=int, default=100,
+                        help="Target number of ideas (batch mode, default 100)")
+    parser.add_argument("-s", "--batch-size", type=int, default=10,
+                        help="Ideas per API call (batch mode, default 10)")
+
     args = parser.parse_args()
 
-    run_full_ideation(
-        domain=args.domain,
-        iterations=args.iterations,
-        minutes=args.minutes,
-        threshold=args.threshold,
-        verbose=args.verbose,
-        use_web_search=args.web_search
-    )
+    if args.batch:
+        # Batch mode
+        run_batch_ideation(
+            domain=args.domain,
+            target_ideas=args.target,
+            batch_size=args.batch_size,
+            threshold=args.threshold,
+            verbose=args.verbose,
+            use_web_search=args.web_search
+        )
+    else:
+        # Standard mode
+        run_full_ideation(
+            domain=args.domain,
+            iterations=args.iterations,
+            minutes=args.minutes,
+            threshold=args.threshold,
+            verbose=args.verbose,
+            use_web_search=args.web_search
+        )
