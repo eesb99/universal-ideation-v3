@@ -34,3 +34,6 @@ ENV/
 
 # Logs
 *.log
+
+# Session context (local notes)
+context/
