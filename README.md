@@ -12,6 +12,8 @@ Science-grounded autonomous ideation system with self-improving mechanisms.
 - **Reflection Learning** - Self-improving pattern extraction
 - **Plateau Escape** - Avoid local optima
 - **Web Search Integration** - Real-time market intelligence via Perplexity API
+- **Interview Context Integration** - Enriched ideation using universal-interview skill
+- **Batch Mode** - Generate multiple ideas per API call (5x faster)
 
 ## Architecture
 
@@ -94,17 +96,70 @@ This fetches:
 
 The market context is injected into idea generation prompts for more grounded, trend-aware ideas.
 
+### With Interview Context (Deep Domain Understanding)
+
+Enrich ideation with structured interview context from the universal-interview skill:
+
+```bash
+# First, run an interview to build context
+cd ~/.claude/skills/universal-interview
+python3 scripts/interview_runner.py "sustainable protein beverages"
+
+# Then use the context in ideation
+cd ~/.claude/skills/universal-ideation-v3
+python3 scripts/llm_runner.py "protein beverages" --context-id [ID] -b -n 10 -v
+
+# Or use interactive context selection
+python3 scripts/llm_runner.py "protein beverages" -c -b -n 10 -v
+```
+
+The interview context provides:
+- **Problem Space** - Pain points and user needs
+- **Constraints** - Budget, timeline, regulations
+- **Assumptions** - Hidden beliefs to challenge
+- **Intent** - Strategic goals
+- **Preferences** - What excites vs. bores
+- **Existing Solutions** - Competitors and gaps
+- **Resources** - Assets and capabilities
+
+Both skills share the database at `~/.claude/data/ideation.db`.
+
+### Batch Mode (5x Faster)
+
+Generate multiple ideas per API call:
+
+```bash
+# Generate 100 ideas in batch mode
+python3 scripts/llm_runner.py "your domain" -b -n 100 -s 10 -v
+
+# With web search
+python3 scripts/llm_runner.py "your domain" -b -n 100 -w -v
+
+# With interview context
+python3 scripts/llm_runner.py "your domain" -b -n 100 --context-id [ID] -v
+```
+
+| Mode | Ideas/min | 100 ideas |
+|------|-----------|-----------|
+| Standard | ~1 | ~100 min |
+| Batch | ~5 | ~20 min |
+
 ## Options
 
 ### llm_runner.py (Full Mode)
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-i, --iterations` | 15 | Max iterations |
-| `-m, --minutes` | 15 | Max duration |
+| `-i, --iterations` | 15 | Max iterations (standard mode) |
+| `-m, --minutes` | 15 | Max duration (standard mode) |
 | `-t, --threshold` | 60.0 | Acceptance score |
 | `-v, --verbose` | false | Show progress |
-| `-w, --web-search` | false | Enable Perplexity web search for market context |
+| `-w, --web-search` | false | Enable Perplexity web search |
+| `-b, --batch` | false | Enable batch mode |
+| `-n, --target` | 100 | Target ideas (batch mode) |
+| `-s, --batch-size` | 10 | Ideas per API call (batch mode) |
+| `-c, --context` | false | Interactive interview context selection |
+| `--context-id` | - | Specific interview context ID |
 
 ### run_v3.py (Stub Mode)
 
@@ -119,8 +174,8 @@ The market context is injected into idea generation prompts for more grounded, t
 ## Storage
 
 ### SQLite Database
-- Location: `data/ideation.db`
-- Tables: ideas, sessions, learnings
+- Location: `~/.claude/data/ideation.db` (shared with universal-interview)
+- Tables: ideas, sessions, learnings, initiatives, interview_responses
 - Persists all accepted ideas with scores
 
 ### Qdrant Vector Database (Optional)
@@ -219,4 +274,4 @@ MIT
 
 ## Version
 
-v3.2 (2025-12-29)
+v3.3 (2025-12-31) - Added batch mode, interview context integration, shared database
