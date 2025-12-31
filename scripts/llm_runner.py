@@ -32,6 +32,7 @@ from run_v3 import (
 from generators.triple_generator import GeneratorMode, ConstraintTemplate
 from storage.memory_helper import MemoryHelper
 from search.perplexity_search import PerplexitySearch, create_perplexity_search
+from interview import ContextSelector, InterviewContext, create_context_selector
 
 # Initialize Anthropic client
 client = anthropic.Anthropic(
@@ -41,6 +42,10 @@ client = anthropic.Anthropic(
 # Initialize Perplexity search (optional - for web knowledge)
 perplexity_client: PerplexitySearch = None
 market_context: str = ""
+
+# Interview context (optional - for enriched domain context)
+interview_context: InterviewContext = None
+context_selector: ContextSelector = None
 
 MODEL = "claude-sonnet-4-20250514"
 
@@ -71,10 +76,15 @@ def generate_ideas_batch(domain: str, mode: GeneratorMode, batch_size: int = 10,
     if market_context:
         context_section = f"\n\n{market_context}"
 
+    # Add interview context if available
+    interview_section = ""
+    if interview_context:
+        interview_section = f"\n\nInterview Context:\n{interview_context.get_prompt_context()}"
+
     prompt = f"""You are a {mode_desc}.
 
 Domain: {domain}
-{learning_context}{context_section}
+{learning_context}{context_section}{interview_section}
 
 Generate {batch_size} DIVERSE and UNIQUE product/service ideas. Each idea should be distinctly different from the others.
 
@@ -213,6 +223,10 @@ Return JSON only:
     if market_context:
         prompt += f"\n\n{market_context}"
 
+    # Add interview context if available
+    if interview_context:
+        prompt += f"\n\nInterview Context:\n{interview_context.get_prompt_context()}"
+
     try:
         response = client.messages.create(
             model=MODEL,
@@ -337,7 +351,9 @@ Return JSON only:
 
 def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
                       threshold: float = 60.0, verbose: bool = True,
-                      use_web_search: bool = False):
+                      use_web_search: bool = False,
+                      use_interview_context: bool = False,
+                      context_id: str = None):
     """
     Run full v3.2 ideation with LLM integration and full storage.
 
@@ -348,9 +364,11 @@ def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
         threshold: Acceptance score threshold
         verbose: Enable verbose output
         use_web_search: Enable Perplexity web search for market context
+        use_interview_context: Enable interactive interview context selection
+        context_id: Specific interview context ID to use (skips interactive selection)
     """
 
-    global memory_helper, perplexity_client, market_context
+    global memory_helper, perplexity_client, market_context, interview_context, context_selector
 
     # Initialize storage
     print("=" * 60)
@@ -399,6 +417,26 @@ def run_full_ideation(domain: str, iterations: int = 15, minutes: int = 15,
             market_context = ""
     else:
         market_context = ""
+
+    # Initialize interview context if requested
+    if use_interview_context or context_id:
+        context_selector = create_context_selector()
+        if context_id:
+            # Use specific context ID
+            interview_context = context_selector.get_context_by_id(context_id)
+            if interview_context:
+                storage_status.append(f"Interview Context: {interview_context.initiative_name[:30]}...")
+            else:
+                storage_status.append(f"Interview Context: NOT FOUND ({context_id})")
+        else:
+            # Interactive selection
+            interview_context = context_selector.select_context_interactive(domain)
+            if interview_context:
+                storage_status.append(f"Interview Context: {interview_context.initiative_name[:30]}...")
+            else:
+                storage_status.append("Interview Context: None selected")
+    else:
+        interview_context = None
 
     for status in storage_status:
         print(f"  {status}")
@@ -816,6 +854,12 @@ if __name__ == "__main__":
     parser.add_argument("-w", "--web-search", action="store_true",
                         help="Enable Perplexity web search for market context (requires PERPLEXITY_API_KEY)")
 
+    # Interview context options
+    parser.add_argument("-c", "--context", action="store_true",
+                        help="Enable interactive interview context selection")
+    parser.add_argument("--context-id",
+                        help="Use specific interview context ID (skips interactive selection)")
+
     # Batch mode options
     parser.add_argument("-b", "--batch", action="store_true",
                         help="Enable batch mode (generate multiple ideas per API call)")
@@ -844,5 +888,7 @@ if __name__ == "__main__":
             minutes=args.minutes,
             threshold=args.threshold,
             verbose=args.verbose,
-            use_web_search=args.web_search
+            use_web_search=args.web_search,
+            use_interview_context=args.context,
+            context_id=args.context_id
         )

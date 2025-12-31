@@ -12,6 +12,7 @@ Science-grounded autonomous ideation system with self-improving mechanisms.
 - **Reflection Learning** - Self-improving pattern extraction
 - **Plateau Escape** - Avoid local optima
 - **Web Search Integration** - Real-time market intelligence via Perplexity API
+- **Universal Interview** - Adaptive domain interview for enriched ideation context (NEW)
 
 ## Architecture
 
@@ -94,6 +95,92 @@ This fetches:
 
 The market context is injected into idea generation prompts for more grounded, trend-aware ideas.
 
+## Universal Interview (NEW)
+
+Enrich your ideation with deep domain context through an adaptive interview process.
+
+### How It Works
+
+1. Run `/universal-interview "your domain"` first
+2. Answer questions about problem space, constraints, intent, etc.
+3. System builds a rich context profile
+4. Run `/universal-ideation-v3` and select your interview context
+5. Ideas are generated with full awareness of your situation
+
+### Interview Skill Commands
+
+```bash
+# Start new interview
+/universal-interview "sustainable packaging"
+
+# Resume or list in-progress interviews
+/universal-interview --continue
+
+# List all initiatives
+/universal-interview --list
+
+# Export context as Markdown
+/universal-interview --export [initiative-id]
+
+# Delete an initiative
+/universal-interview --delete [initiative-id]
+```
+
+### CLI Usage
+
+```bash
+cd ~/.claude/skills/universal-ideation-v3
+
+# Start interactive interview
+python3 scripts/interview_runner.py "sustainable packaging"
+
+# List initiatives
+python3 scripts/interview_runner.py --list
+
+# Export context
+python3 scripts/interview_runner.py --export abc123
+
+# View stats
+python3 scripts/interview_runner.py --stats
+```
+
+### Interview Dimensions
+
+The interview explores 7 key dimensions:
+
+| Dimension | Purpose |
+|-----------|---------|
+| **Problem Space** | What pain points exist? Who suffers? |
+| **Constraints** | Budget, timeline, regulations, geography |
+| **Assumptions** | Hidden beliefs that might be wrong |
+| **Intent** | Strategic goal - disrupt, defend, optimize? |
+| **Preferences** | What excites vs. bores you |
+| **Existing Solutions** | Competitors, prior attempts |
+| **Resources** | Assets, capabilities, relationships |
+
+### Using Context in Ideation
+
+Run ideation with interview context:
+
+```bash
+# Interactive context selection
+python3 scripts/llm_runner.py "sustainable packaging" -c -v
+
+# Use specific context ID
+python3 scripts/llm_runner.py "sustainable packaging" --context-id abc123 -v
+```
+
+### Template Scaffolds
+
+The interview can apply pre-built constraint templates:
+
+| Template | Applied When |
+|----------|--------------|
+| **BOOTSTRAP** | Budget-constrained startup |
+| **ENTERPRISE** | Corporate context |
+| **REGULATED** | Healthcare, finance, etc. |
+| **SUSTAINABLE** | Environmental focus |
+
 ## Options
 
 ### llm_runner.py (Full Mode)
@@ -105,6 +192,8 @@ The market context is injected into idea generation prompts for more grounded, t
 | `-t, --threshold` | 60.0 | Acceptance score |
 | `-v, --verbose` | false | Show progress |
 | `-w, --web-search` | false | Enable Perplexity web search for market context |
+| `-c, --context` | false | Enable interactive interview context selection |
+| `--context-id` | - | Use specific interview context ID |
 
 ### run_v3.py (Stub Mode)
 
@@ -192,12 +281,14 @@ python -m pytest tests/ -v
 
 ```
 universal-ideation-v3/
-├── SKILL.md              # Skill definition
+├── SKILL.md              # Ideation skill definition
+├── INTERVIEW_SKILL.md    # Interview skill definition (NEW)
 ├── README.md             # This file
 ├── requirements.txt      # Dependencies
 ├── scripts/
 │   ├── run_v3.py        # Main orchestrator (stub mode)
 │   ├── llm_runner.py    # LLM-integrated runner (full mode)
+│   ├── interview_runner.py  # Interview CLI runner (NEW)
 │   ├── backup.py        # Database backup tool
 │   ├── generators/      # Triple Generator
 │   ├── gates/           # Quality gates
@@ -206,8 +297,13 @@ universal-ideation-v3/
 │   ├── escape/          # Plateau escape
 │   ├── novelty/         # Atomic novelty
 │   ├── search/          # Web search (Perplexity)
-│   └── storage/         # Persistence (SQLite + Qdrant)
-├── tests/               # 74 unit tests
+│   ├── storage/         # Persistence (SQLite + Qdrant)
+│   └── interview/       # Interview module (NEW)
+│       ├── interview_storage.py   # Interview persistence
+│       ├── interview_engine.py    # Core interview logic
+│       ├── models.py              # Data models
+│       └── context_selector.py    # Context selection for ideation
+├── tests/               # Unit tests
 ├── data/                # Runtime SQLite
 ├── backups/             # Database backups
 └── output/              # Generated results
