@@ -11,6 +11,7 @@
 ### Features
 
 * Add batch idea generation mode ([9204c4e](https://github.com/eesb99/universal-ideation-v3/commit/9204c4ef11863eeafe42ef46be000fd3b5bf46be))
+* add interview context integration for enriched ideation ([40e6362](https://github.com/eesb99/universal-ideation-v3/commit/40e636235e8ef56622c74684993ab22e88656f76))
 
 
 
