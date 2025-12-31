@@ -840,7 +840,59 @@ if __name__ == "__main__":
     parser.add_argument("-s", "--batch-size", type=int, default=10,
                         help="Ideas per API call (batch mode, default 10)")
 
+    # Interview context options
+    parser.add_argument("-c", "--context", action="store_true",
+                        help="Use interview context from universal-interview skill")
+    parser.add_argument("--context-id", type=str, default=None,
+                        help="Specific interview context ID to use")
+
     args = parser.parse_args()
+
+    # Load interview context if requested
+    interview_context = None
+    if args.context or args.context_id:
+        try:
+            import sys
+            interview_skill_path = str(Path.home() / ".claude" / "skills" / "universal-interview" / "scripts")
+            if interview_skill_path not in sys.path:
+                sys.path.insert(0, interview_skill_path)
+            from interview import InterviewStorage, ContextSelector
+
+            storage = InterviewStorage()
+            selector = ContextSelector(storage=storage)
+
+            if args.context_id:
+                interview_context = selector.get_context_by_id(args.context_id)
+                if interview_context:
+                    print(f"Using interview context: {interview_context.initiative_name}")
+            else:
+                interview_context = selector.select_context_interactive(args.domain)
+
+            if interview_context:
+                # Enrich domain with interview context
+                enriched = interview_context.enriched_domain or interview_context.original_domain
+                if enriched and enriched != args.domain:
+                    print(f"Enriched domain: {enriched[:100]}...")
+                    args.domain = enriched
+
+                # Build context summary from interview dimensions and set global
+                context_parts = []
+                dimension_attrs = ['problem_space', 'constraints', 'assumptions', 'intent',
+                                   'preferences', 'existing_solutions', 'resources']
+                for dim_name in dimension_attrs:
+                    dim_resp = getattr(interview_context, dim_name, None)
+                    if dim_resp and dim_resp.response:
+                        context_parts.append(f"- {dim_name}: {dim_resp.response}")
+                if context_parts:
+                    market_context = "Interview Context:\n" + "\n".join(context_parts)
+                    print(f"Loaded {len(context_parts)} interview dimensions")
+
+        except Exception as e:
+            print(f"Warning: Could not load interview context: {e}")
+
+    # Declare market_context for modification if interview loaded
+    if args.context or args.context_id:
+        pass  # market_context already set above if successful
 
     if args.batch:
         # Batch mode
