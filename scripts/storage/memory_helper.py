@@ -38,10 +38,10 @@ class MemoryHelper:
         qdrant_port: int = 6333,
         collection_name: str = "universal_ideas"
     ):
-        # Set default database path
+        # Set default database path - use shared ~/.claude/data/ for cross-skill access
         if db_path is None:
-            project_root = Path(__file__).parent.parent.parent
-            db_path = str(project_root / "data" / "ideation.db")
+            shared_data_dir = Path.home() / ".claude" / "data"
+            db_path = str(shared_data_dir / "ideation.db")
 
         self.db_path = db_path
         self.qdrant_host = qdrant_host
