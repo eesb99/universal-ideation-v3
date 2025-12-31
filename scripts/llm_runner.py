@@ -47,8 +47,16 @@ MODEL = "claude-sonnet-4-20250514"
 # Global storage helper (initialized in run_full_ideation)
 memory_helper = None
 
+# Scoring weights for 8-dimension evaluation (shared across modes)
+SCORING_WEIGHTS = {
+    "novelty": 0.12, "feasibility": 0.18, "market": 0.18,
+    "complexity": 0.12, "scenario": 0.12, "contrarian": 0.10,
+    "surprise": 0.10, "cross_domain": 0.08
+}
 
-def generate_ideas_batch(domain: str, mode: GeneratorMode, batch_size: int = 10, learnings: list = None) -> list:
+
+def generate_ideas_batch(domain: str, mode: GeneratorMode, batch_size: int = 10,
+                         learnings: list = None, market_context: str = "") -> list:
     """Generate multiple ideas in a single API call for efficiency."""
 
     mode_descriptions = {
@@ -102,7 +110,7 @@ Return ONLY the JSON array, no other text."""
     try:
         response = client.messages.create(
             model=MODEL,
-            max_tokens=4096,  # Increased for batch output
+            max_tokens=max(2048, batch_size * 400),  # Scale with batch size
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -126,6 +134,9 @@ Return ONLY the JSON array, no other text."""
 
         return ideas
 
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error: {e}")
+        return []
     except Exception as e:
         print(f"Batch generation error: {e}")
         return []
@@ -666,7 +677,8 @@ def run_batch_ideation(domain: str, target_ideas: int = 100, batch_size: int = 1
                 domain=domain,
                 mode=mode,
                 batch_size=batch_size,
-                learnings=[r["title"] for r in accepted_ideas[-10:]] if accepted_ideas else None
+                learnings=[r["title"] for r in accepted_ideas[-10:]] if accepted_ideas else None,
+                market_context=market_context
             )
 
             if not ideas:
@@ -675,17 +687,16 @@ def run_batch_ideation(domain: str, target_ideas: int = 100, batch_size: int = 1
 
             print(f"  Generated {len(ideas)} ideas, scoring...")
 
+            # Track batch-specific counts
+            batch_accepted = 0
+            batch_rejected = 0
+
             # Score each idea
             for i, idea in enumerate(ideas):
                 scores = score_idea_with_llm(idea, domain)
 
-                # Calculate weighted score
-                weights = {
-                    "novelty": 0.12, "feasibility": 0.18, "market": 0.18,
-                    "complexity": 0.12, "scenario": 0.12, "contrarian": 0.10,
-                    "surprise": 0.10, "cross_domain": 0.08
-                }
-                weighted_score = sum(scores.get(dim, 50) * w for dim, w in weights.items())
+                # Calculate weighted score using shared constant
+                weighted_score = sum(scores.get(dim, 50) * w for dim, w in SCORING_WEIGHTS.items())
 
                 idea["scores"] = scores
                 idea["weighted_score"] = weighted_score
@@ -694,6 +705,7 @@ def run_batch_ideation(domain: str, target_ideas: int = 100, batch_size: int = 1
                 # Accept/reject based on threshold
                 if weighted_score >= threshold:
                     accepted_ideas.append(idea)
+                    batch_accepted += 1
                     status = "[+]"
 
                     # Store in database
@@ -715,13 +727,14 @@ def run_batch_ideation(domain: str, target_ideas: int = 100, batch_size: int = 1
                             print(f"    Storage error: {e}")
                 else:
                     rejected_ideas.append(idea)
+                    batch_rejected += 1
                     status = "[-]"
 
                 if verbose:
                     title = idea.get("title", "Unknown")[:35]
                     print(f"    {status} {title} | {weighted_score:.1f}")
 
-            print(f"  Batch complete: {len(accepted_ideas)} accepted, {len(rejected_ideas)} rejected")
+            print(f"  Batch complete: +{batch_accepted} accepted, +{batch_rejected} rejected (total: {len(accepted_ideas)})")
             print()
 
         if len(all_ideas) >= target_ideas:
@@ -736,7 +749,10 @@ def run_batch_ideation(domain: str, target_ideas: int = 100, batch_size: int = 1
     print(f"Total ideas generated: {len(all_ideas)}")
     print(f"Accepted ideas:        {len(accepted_ideas)}")
     print(f"Rejected ideas:        {len(rejected_ideas)}")
-    print(f"Acceptance rate:       {len(accepted_ideas)/len(all_ideas)*100:.1f}%" if all_ideas else "N/A")
+    if all_ideas:
+        print(f"Acceptance rate:       {len(accepted_ideas)/len(all_ideas)*100:.1f}%")
+    else:
+        print("Acceptance rate:       N/A")
     print(f"Duration:              {duration:.1f}s ({duration/60:.1f} min)")
     print(f"Ideas/minute:          {len(all_ideas)/(duration/60):.1f}" if duration > 0 else "N/A")
     print()
