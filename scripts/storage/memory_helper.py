@@ -54,14 +54,21 @@ class MemoryHelper:
         # Initialize SQLite
         self._init_sqlite()
 
-        # Initialize Qdrant
+        # Initialize Qdrant with fast timeout
         self.qdrant = None
         if QDRANT_AVAILABLE:
             try:
-                self.qdrant = QdrantClient(host=qdrant_host, port=qdrant_port)
+                self.qdrant = QdrantClient(
+                    host=qdrant_host,
+                    port=qdrant_port,
+                    timeout=5  # 5 second timeout for operations
+                )
+                # Quick health check to verify connection
+                self.qdrant.get_collections()
                 self._init_qdrant()
             except Exception as e:
-                print(f"Warning: Could not connect to Qdrant: {e}")
+                print(f"Warning: Qdrant not available (run 'docker run -p 6333:6333 qdrant/qdrant'): {e}")
+                self.qdrant = None
 
         # Initialize embedding model
         self.embedder = None
