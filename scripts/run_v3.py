@@ -1,5 +1,5 @@
 """
-Universal Ideation v3.2 - Full Orchestrator
+Universal Ideation v3.3 - Full Orchestrator with LLM Integration
 
 Integrates all v3 components:
 - Triple Generator System (Explorer, Refiner, Contrarian)
@@ -11,6 +11,7 @@ Integrates all v3 components:
 - Cognitive Diversity Evaluators (4 personas + debate)
 - 8-Dimension Scoring (including Surprise + Cross-Domain)
 - Plateau Escape Protocol (don't stop at local optimum)
+- LLM-powered idea generation via Anthropic API [v3.3]
 
 v3.1 Changes:
 - TCRTE prompt structure
@@ -22,13 +23,22 @@ v3.2 Changes:
 - Reflection Learning (ReflectEvo self-improvement)
 - Atomic Novelty (NovAScore 0.94 accuracy)
 
+v3.3 Changes:
+- LLM-powered idea generation (--use-llm flag)
+- Anthropic API integration for real idea generation
+- Falls back to stub generators if API not available
+
 Usage:
-    orchestrator = IdeationOrchestrator(domain="protein beverages")
-    results = orchestrator.run(max_iterations=30, max_minutes=30)
+    # With LLM (real ideas)
+    python run_v3.py "domain" --use-llm --verbose
+
+    # Test mode (stub generators)
+    python run_v3.py "domain" --verbose
 """
 
 # Path setup for distribution package
 import sys
+import os
 from pathlib import Path
 _SCRIPT_DIR = Path(__file__).parent.resolve()
 if str(_SCRIPT_DIR) not in sys.path:
@@ -42,6 +52,7 @@ import time
 import json
 import numpy as np
 import hashlib
+import re
 
 # Import all v3 components
 from generators.triple_generator import (
@@ -1105,6 +1116,193 @@ class IdeationOrchestrator:
             json.dump(export_data, f, indent=2, default=str)
 
 
+# v3.3: Database integration for interview context
+def get_initiative_domain(initiative_id: str, db_path: str = None) -> Optional[str]:
+    """
+    Fetch enriched_domain from the interview database for an initiative.
+
+    Args:
+        initiative_id: UUID of the initiative
+        db_path: Path to ideation.db (defaults to ~/.claude/data/ideation.db)
+
+    Returns:
+        The enriched_domain string if found, None otherwise
+    """
+    import sqlite3
+
+    if db_path is None:
+        db_path = os.path.expanduser("~/.claude/data/ideation.db")
+
+    if not os.path.exists(db_path):
+        print(f"ERROR: Database not found at {db_path}")
+        return None
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            "SELECT enriched_domain, name, status FROM initiatives WHERE id = ?",
+            (initiative_id,)
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if row is None:
+            print(f"ERROR: Initiative {initiative_id} not found")
+            return None
+
+        enriched_domain, name, status = row
+
+        if status != "ready":
+            print(f"WARNING: Initiative '{name}' status is '{status}' (not 'ready')")
+
+        if not enriched_domain:
+            print(f"ERROR: Initiative '{name}' has no enriched_domain")
+            return None
+
+        print(f"Loaded initiative: {name}")
+        print(f"Status: {status}")
+        return enriched_domain
+
+    except sqlite3.Error as e:
+        print(f"ERROR: Database error: {e}")
+        return None
+
+
+# v3.3: LLM-powered idea generation
+def create_llm_idea_generator(model: str = "claude-sonnet-4-20250514", verbose: bool = False):
+    """
+    Factory function to create an LLM-powered idea generator.
+
+    Returns a callable that generates ideas using the Anthropic API.
+    """
+    try:
+        import anthropic
+    except ImportError:
+        print("ERROR: anthropic package not installed. Run: pip install anthropic")
+        return None
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("ERROR: ANTHROPIC_API_KEY environment variable not set")
+        return None
+
+    client = anthropic.Anthropic(api_key=api_key)
+
+    def generate_idea(
+        domain: str,
+        mode: GeneratorMode,
+        learnings: List[str],
+        escape_prompt: Optional[str] = None
+    ) -> Dict:
+        """Generate idea using Anthropic API."""
+
+        # Build mode-specific instructions
+        mode_instructions = {
+            GeneratorMode.EXPLORER: """You are in EXPLORER mode. Focus on:
+- Maximizing novelty and originality
+- Blue ocean thinking - unexplored spaces
+- Cross-domain analogies and unconventional combinations
+- Bold, potentially risky ideas
+- Push boundaries, don't play safe""",
+
+            GeneratorMode.REFINER: """You are in REFINER mode. Focus on:
+- Optimizing feasibility and implementation clarity
+- Building on known patterns that work
+- Practical improvements to existing approaches
+- Clear path to execution
+- Risk mitigation and pragmatic solutions""",
+
+            GeneratorMode.CONTRARIAN: """You are in CONTRARIAN mode. Focus on:
+- Challenging dominant assumptions in the domain
+- Finding value in what others dismiss
+- Inverting conventional wisdom
+- Identifying hidden opportunities others miss
+- Question "obvious" best practices"""
+        }
+
+        # Build learnings context
+        learnings_text = ""
+        if learnings:
+            relevant = [l for l in learnings if not l.startswith("INJECTION")]
+            if relevant:
+                learnings_text = "\n\nPrior learnings from this session:\n" + "\n".join(f"- {l}" for l in relevant[-5:])
+
+            # Handle injection directives
+            injections = [l for l in learnings if l.startswith("INJECTION")]
+            if injections:
+                learnings_text += "\n\nMANDATORY REQUIREMENTS:\n" + "\n".join(f"- {l.replace('INJECTION: ', '')}" for l in injections)
+
+        # Build escape context if provided
+        escape_text = ""
+        if escape_prompt:
+            escape_text = f"\n\nESCAPE DIRECTIVE: {escape_prompt}"
+
+        prompt = f"""Generate an innovative idea for the following domain:
+
+DOMAIN: {domain}
+
+{mode_instructions.get(mode, mode_instructions[GeneratorMode.EXPLORER])}
+{learnings_text}
+{escape_text}
+
+Generate ONE concrete, actionable idea. Your response MUST be valid JSON with this exact structure:
+{{
+    "title": "Concise descriptive title (max 10 words)",
+    "description": "2-3 sentence description of the core concept",
+    "mechanism": "How it works technically/practically",
+    "target_market": "Who benefits and why",
+    "differentiators": ["Key unique aspect 1", "Key unique aspect 2", "Key unique aspect 3"],
+    "implementation_path": "High-level steps to make this real",
+    "potential_challenges": ["Challenge 1", "Challenge 2"]
+}}
+
+Return ONLY the JSON object, no other text."""
+
+        try:
+            response = client.messages.create(
+                model=model,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}]
+            )
+
+            response_text = response.content[0].text.strip()
+
+            # Extract JSON from response (handle markdown code blocks)
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+
+            idea = json.loads(response_text)
+
+            if verbose:
+                print(f"    [LLM] Generated: {idea.get('title', 'Untitled')[:50]}")
+
+            return idea
+
+        except json.JSONDecodeError as e:
+            print(f"    [LLM] JSON parse error: {e}")
+            # Return minimal valid idea
+            return {
+                "title": f"Parse Error Idea ({mode.value})",
+                "description": f"Failed to parse LLM response",
+                "target_market": domain,
+                "differentiators": ["Generated during error recovery"]
+            }
+        except Exception as e:
+            print(f"    [LLM] API error: {e}")
+            return {
+                "title": f"API Error Idea ({mode.value})",
+                "description": str(e)[:100],
+                "target_market": domain,
+                "differentiators": []
+            }
+
+    return generate_idea
+
+
 # Quick test function
 def test_orchestrator():
     """Quick test of orchestrator."""
@@ -1142,8 +1340,14 @@ def main():
     parser.add_argument(
         "domain",
         nargs="?",
-        default="general innovation",
-        help="Domain/focus area for ideation"
+        default=None,
+        help="Domain/focus area for ideation (or use --initiative)"
+    )
+    parser.add_argument(
+        "--initiative",
+        type=str,
+        default=None,
+        help="Initiative ID to load enriched_domain from interview database"
     )
     parser.add_argument(
         "--iterations", "-i",
@@ -1281,6 +1485,19 @@ def main():
         help="Minimum atomic novelty score threshold (default: 40.0)"
     )
 
+    # v3.3: LLM-powered generation
+    parser.add_argument(
+        "--use-llm",
+        action="store_true",
+        help="Use Anthropic API for real LLM-powered idea generation (requires ANTHROPIC_API_KEY)"
+    )
+    parser.add_argument(
+        "--llm-model",
+        type=str,
+        default="claude-sonnet-4-20250514",
+        help="Anthropic model to use (default: claude-sonnet-4-20250514)"
+    )
+
     parser.add_argument(
         "--test",
         action="store_true",
@@ -1297,6 +1514,16 @@ def main():
     if args.test:
         test_orchestrator()
         return
+
+    # v3.3: Resolve domain from initiative or argument
+    domain = args.domain
+    if args.initiative:
+        domain = get_initiative_domain(args.initiative)
+        if domain is None:
+            print("Failed to load initiative. Use --domain instead or check the initiative ID.")
+            return
+    elif domain is None:
+        domain = "general innovation"
 
     # v3.1: Build constraint configuration
     constraint_config = None
@@ -1335,9 +1562,19 @@ def main():
     )
 
     orchestrator = IdeationOrchestrator(
-        domain=args.domain,
+        domain=domain,
         config=config
     )
+
+    # v3.3: Create LLM generator if requested
+    idea_generator = None
+    if args.use_llm:
+        idea_generator = create_llm_idea_generator(
+            model=args.llm_model,
+            verbose=args.verbose
+        )
+        if idea_generator is None:
+            print("WARNING: LLM generator unavailable, falling back to stub generators")
 
     def on_iteration(iteration, result):
         if args.verbose:
@@ -1346,9 +1583,11 @@ def main():
                   f"| {result.final_score:.1f} | {result.generator_mode.value}")
 
     print(f"\n{'='*60}")
-    print(f"UNIVERSAL IDEATION v3.1")
+    print(f"UNIVERSAL IDEATION v3.3")
     print(f"{'='*60}")
-    print(f"Domain: {args.domain}")
+    if args.initiative:
+        print(f"Initiative: {args.initiative}")
+    print(f"Domain: {domain[:100]}..." if len(domain) > 100 else f"Domain: {domain}")
     print(f"Config: {args.iterations} iterations, {args.minutes} min, threshold {args.threshold}")
     if constraint_config:
         print(f"Constraints: {args.constraints}")
@@ -1373,9 +1612,16 @@ def main():
         print(f"  Weight: {args.atomic_novelty_weight:.0%}")
         print(f"  LLM-enhanced: {'yes' if args.llm_novelty else 'no'}")
         print(f"  Min threshold: {args.min_novelty}")
+    # v3.3: LLM generation status
+    print(f"LLM generation: {'ENABLED' if idea_generator else 'disabled (stub mode)'}")
+    if idea_generator:
+        print(f"  Model: {args.llm_model}")
     print(f"{'='*60}\n")
 
-    results = orchestrator.run(on_iteration=on_iteration)
+    results = orchestrator.run(
+        idea_generator=idea_generator,
+        on_iteration=on_iteration
+    )
 
     print(f"\n{'='*60}")
     print(f"SESSION COMPLETE")
