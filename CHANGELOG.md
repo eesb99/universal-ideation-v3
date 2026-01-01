@@ -1,4 +1,20 @@
-# 1.0.0 (2025-12-31)
+# Changelog
+
+## 3.3.0 (2026-01-01)
+
+### Features
+
+* **run_v3.py**: Add `--use-llm` flag for Anthropic API-powered idea generation ([24d7c8c](https://github.com/eesb99/universal-ideation-v3/commit/24d7c8c))
+* **run_v3.py**: Add `--initiative` flag to load enriched_domain from interview database ([24d7c8c](https://github.com/eesb99/universal-ideation-v3/commit/24d7c8c))
+* **run_v3.py**: Add `--llm-model` flag for model selection (default: claude-sonnet-4-20250514) ([24d7c8c](https://github.com/eesb99/universal-ideation-v3/commit/24d7c8c))
+
+### Documentation
+
+* Update README with v3.3 run_v3.py options ([79efef4](https://github.com/eesb99/universal-ideation-v3/commit/79efef4))
+
+---
+
+## 1.0.0 (2025-12-31)
 
 
 ### Bug Fixes
